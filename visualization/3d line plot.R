@@ -1,3 +1,4 @@
+library(dslabs)
 # compute US average measles rate by year
 avg <- us_contagious_diseases %>%
   filter(disease == the_disease) %>% group_by(year) %>%

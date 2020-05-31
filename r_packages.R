@@ -14,3 +14,6 @@ install.packages("caret")
 install.packages("e1071")
 install.packages("matrixStats")
 install.packages("gridExtra")
+install.packages("randomForest")
+
+# Caret models: http://topepo.github.io/caret/available-models.html

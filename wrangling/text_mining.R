@@ -5,11 +5,11 @@ library(tidyr)
 library(scales)
 set.seed(1)
 
-# url <- 'http://www.trumptwitterarchive.com/data/realdonaldtrump/%s.json'
-# trump_tweets <- map(2009:2017, ~sprintf(url, .x)) %>%
-#   map_df(jsonlite::fromJSON, simplifyDataFrame = TRUE) %>%
-#   filter(!is_retweet & !str_detect(text, '^"')) %>%
-#   mutate(created_at = parse_date_time(created_at, orders = "a b! d! H!:M!:S! z!* Y!", tz="EST")) 
+url <- 'http://www.trumptwitterarchive.com/data/realdonaldtrump/%s.json'
+trump_tweets <- map(2009:2017, ~sprintf(url, .x)) %>%
+  map_df(jsonlite::fromJSON, simplifyDataFrame = TRUE) %>%
+  filter(!is_retweet & !str_detect(text, '^"')) %>%
+  mutate(created_at = parse_date_time(created_at, orders = "a b! d! H!:M!:S! z!* Y!", tz="EST"))
 
 # For convenience we include the result of the code above in the dslabs package:
 library(dslabs)
@@ -172,7 +172,7 @@ log_or %>%
 
 # If we are interested in exploring which specific words are driving these differences, we can back to our android_iphone_or object:
   
-  android_iphone_or %>% inner_join(nrc) %>%
+android_iphone_or %>% inner_join(nrc) %>%
   filter(sentiment == "disgust" & Android + iPhone > 10) %>%
   arrange(desc(or))
 # We can make a graph:
