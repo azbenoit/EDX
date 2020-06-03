@@ -85,8 +85,41 @@ y_hat_glm_all <- predict(fit_glm_all, newdata = test, type = "raw")
 mean(y_hat_glm_all  == test$Survived)
 
 # KNN
-train_x <- train %>% select(-Survived) %>% as.matrix(.)
-train_y <- train %>% select(Survived) %>% as.vecto
 suppressWarnings(set.seed(6, sample.kind = "Rounding"))
-fit_knn <- train(train_x, train_y, data = train, method = "knn", 
-                 tunegrid = data.frame(k = seq(3, 51, 2)))
+fit_knn <- train(Survived~.,data = train, method = "knn",
+                 tuneGrid = data.frame(k = seq(3, 51, 2)))
+fit_knn$bestTune
+y_hat_knn <- predict(fit_knn, newdata = test, type = "raw")
+mean(y_hat_knn == test$Survived)
+plot(fit_knn)
+
+# 10-fold Cross Validation 
+suppressWarnings(set.seed(8, sample.kind = "Rounding"))
+trControl <- trainControl(method = "cv",number = 10, p = 0.9)
+fit_knn <- train(Survived~.,data = train, method = "knn",
+                 trControl = trControl,
+                 tuneGrid = data.frame(k = seq(3, 51, 2)))
+fit_knn$bestTune
+y_hat_knn <- predict(fit_knn, newdata = test, type = "raw")
+mean(y_hat_knn == test$Survived)
+
+# Classification tree model
+suppressWarnings(set.seed(10, sample.kind = "Rounding"))
+fit_tree <- train(Survived~., data = train, method = "rpart",
+                  tuneGrid = data.frame(cp = seq(0, 0.05, 0.002)))
+fit_tree$bestTune
+fit_tree <- fit_tree$finalModel
+y_hat_tree <- predict(fit_tree,newdata = test, type = "raw")
+mean(y_hat_tree == test$Survived)
+plot(fit_tree, margin = 0.1)
+text(fit_tree)
+fit_tree
+
+# Random Forest Model
+suppressWarnings(set.seed(14, sample.kind = "Rounding"))
+fit_forest <- train(Survived~., method = "rf", data = train,
+                    tuneGrid = data.frame(mtry = c(1:7)), ntree = 100)
+fit_forest$bestTune                    
+y_hat_forest <- predict(fit_forest, newdata = test, type = "raw")
+mean(y_hat_forest == test$Survived)
+varImp(fit_forest)
