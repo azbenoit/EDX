@@ -58,3 +58,24 @@ library(matrixStats)
 sds <- colSds(x, na.rm = TRUE)
 o <- order(sds, decreasing = TRUE)[1:25]
 heatmap(x[,o], col = RColorBrewer::brewer.pal(11, "Spectral"))
+
+# Exercises
+d <- dist(tissue_gene_expression$x - rowMeans(tissue_gene_expression$x))
+fit_h <- hclust(d)
+plot(fit_h, cex = 0.65, main = "", xlab = "")
+fit_k <- kmeans(x, centers = 7)
+plot(fit_k$cluster)
+one_group <- replicate(1000,  {
+  fit_k <- kmeans(x, centers = 7)
+  data.frame(type = names(fit_k$cluster),group = fit_k$cluster) %>% 
+  filter(str_detect(.$type, "liver")) %>% 
+  summarise(one_group = all(group == group[1])) %>% .$one_group
+  })
+mean(one_group)
+
+library(RColorBrewer)
+sds <- matrixStats::colSds(tissue_gene_expression$x)
+ind <- order(sds, decreasing = TRUE)[1:50]
+colors <- brewer.pal(7, "Dark2")[as.numeric(tissue_gene_expression$y)]
+heatmap(t(tissue_gene_expression$x[,ind]), col = brewer.pal(11, "RdBu"), scale = "row", ColSideColors = colors)
+
