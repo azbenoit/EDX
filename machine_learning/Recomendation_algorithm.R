@@ -1,12 +1,15 @@
+# Textbook section 33.7
 library(dslabs)
 library(tidyverse)
 library(caret)
 data("movielens")
 set.seed(755)
+# Splitting into test and train sets
 test_index <- createDataPartition(y = movielens$rating, times = 1,
                                   p = 0.2, list = FALSE)
 train_set <- movielens[-test_index,]
 test_set <- movielens[test_index,]
+# make sure we don’t include users and movies in the test set that do not appear in the training set
 test_set <- test_set %>% 
   semi_join(train_set, by = "movieId") %>%
   semi_join(train_set, by = "userId")
