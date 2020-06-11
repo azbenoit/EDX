@@ -169,7 +169,7 @@ rmse_results %>% knitr::kable()
 
 # Matrix factorization
 
-train_small <- movielens %>% 
+train_small <- movielens %>% #User has rated 50+ movies, and movie has been rated 50+ times
   group_by(movieId) %>%
   filter(n() >= 50 | movieId == 3252) %>% ungroup() %>% #3252 is Scent of a Woman used in example
   group_by(userId) %>%
