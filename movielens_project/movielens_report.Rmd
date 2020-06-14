@@ -1,0 +1,284 @@
+---
+title: "Movielens Recommendation Algorithm"
+author: "Alix Benoit"
+date: "6/10/2020"
+output: 
+  pdf_document: 
+    fig_crop: no
+    fig_width: 7.5
+---
+
+```{r setup, include=FALSE}
+################################
+  # Create edx set, validation set
+  ################################
+  
+  # Note: this process could take a couple of minutes
+  
+  if(!require(tidyverse)) {install.packages("tidyverse", repos = "http://cran.us.r-project.org")}
+  if(!require(caret)) {install.packages("caret", repos = "http://cran.us.r-project.org")}
+  if(!require(data.table)) {install.packages("data.table", repos = "http://cran.us.r-project.org")}
+  
+  # MovieLens 10M dataset:
+  # https://grouplens.org/datasets/movielens/10m/
+  # http://files.grouplens.org/datasets/movielens/ml-10m.zip
+  
+  dl <- tempfile()
+  download.file("http://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
+  
+  ratings <- fread(text = gsub("::", "\t", readLines(unzip(dl, "ml-10M100K/ratings.dat"))),
+                   col.names = c("userId", "movieId", "rating", "timestamp"))
+  
+  movies <- str_split_fixed(readLines(unzip(dl, "ml-10M100K/movies.dat")), "\\::", 3)
+  colnames(movies) <- c("movieId", "title", "genres")
+  movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(levels(movieId))[movieId],
+                                             title = as.character(title),
+                                             genres = as.character(genres))
+  
+  movielens <- left_join(ratings, movies, by = "movieId")
+  
+  # Validation set will be 10% of MovieLens data
+  set.seed(1, sample.kind="Rounding")
+  # if using R 3.5 or earlier, use `set.seed(1)` instead
+  test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list = FALSE)
+  edx <- movielens[-test_index,]
+  temp <- movielens[test_index,]
+  
+  # Make sure userId and movieId in validation set are also in edx set
+  validation <- temp %>% 
+    semi_join(edx, by = "movieId") %>%
+    semi_join(edx, by = "userId")
+  
+  # Add rows removed from validation set back into edx set
+  removed <- anti_join(temp, validation)
+  edx <- rbind(edx, removed)
+  
+  rm(dl, ratings, movies, test_index, temp, movielens, removed)
+
+library(tidyverse)
+library(caret)
+  
+```
+
+## Introduction
+
+This project makes use of the movielens 10 million dataset from grouplens at the University of Minnesota. This dataset is comprised of 10000054 total ratings of 10681 movies by 71567 users acquired from the online movie recommendation service "Movielens". Users were selected at random, and all of them had rated at least 20 movies.
+
+The following libraries were used:  
+* tidyverse
+* caret
+* knitr
+* recosystem
+  
+The following demographics are included for each rating in the dataset: 
+* The ID of the user
+* The ID of the movie
+* The rating (number of stars given: 1 = doesn't like the movie; 5 = loves it)
+* When the review was written (given as a numerical timestamp)
+* The title of the movie
+* The possible genres the movie could fall into
+  
+While there exist larger datasets (such as the 100 million set) the 10 million set was chosen in order to make calculations feasable on an old laptop computer.
+
+The goal of the project was to create a machine learning algorithm that can accurately predict the rating a user will give a certain movie when provided with the demographics above (minus rating of course). 
+
+The Root Mean Squared Error (RMSE) was chosen as the measure of accuracy for the algorithm, and the dataset was split into two dataframes:
+ * The edx dataframe used for training and cross validation of the algorithm, which makes up 90% of the total dataset
+ * The validation dataframe used only for the final testing of the final model.
+The target RMSE was 0.86490.  
+
+$$RMSE = \sqrt{\frac{1}{n} \sum_{i=1}^{n}{(\hat{Y_i} - Y_i)^2}}$$
+
+The final model essentially consited of the mean rating plus regularized movie and user effects, aswell as a matrix factorization using a Stochastic Gradient Descent.
+
+Here is a sample of the edx data frame showing the first 6 entries:
+```{r edx_head, echo=TRUE, fig.width=7.5, paged.print=TRUE}
+knitr::kable(head(edx))
+```
+
+
+
+## Method and Analysis
+(explains the process and techniques used, including data cleaning, data exploration and visualization, insights gained, and your modeling approach)
+
+### Data wrangling and cleaning
+Minimal amounts of data cleaning and wrangling were required in order to get start data exploration, as a starting script was already given, which created the Edx and validation sets.
+
+The first step was to split the edx set further, into a "train" set and a "test" set:
+```{r edx_split_1, echo=TRUE}
+i <- createDataPartition(edx$rating, times = 1, p = .1, list = F)
+train <- edx[-i,]
+test <- edx[i,]
+```
+And to make sure all the movies and users in the test set are also in the train set:
+```{r edx_split_2, echo=TRUE}
+test <- test %>% semi_join(train, by = "movieId") %>% 
+  semi_join(train, by = "userId")
+```
+
+The train set was used to train all algorithms and perform cross validation; the test* set was used to get an estimate of how well a particular algorithm performed, and for cross validation purposes as well. 
+
+
+*Note that this is different than the validation set, which is used only on the final model predictions, and cannot be used to make any decisions. Since the test set is derived from the edx set, it can be used to make decisions.
+
+### Baseline model
+
+The following function was written in order to calculate the RMSE from a set of predictions, and a set of actual ratings:
+```{r RMSE_function, echo=TRUE}
+RMSE <- function(actual_rating, predicted_rating){
+  sqrt(mean((actual_rating - predicted_rating)^2))
+}
+```
+
+As a baseline for other models, a simple "guessing" model was adopted, using the mean rating from the train set.
+$$\mathbf{Y_u,_i} = \mu + \epsilon_u,_i$$
+This model achieved the following RMSE on the test set:
+```{r baseline, echo=TRUE}
+mu <- mean(train$rating)
+RMSE(test$rating, mu)
+```
+
+### Movie and user effects
+
+The next model used incorporates a movie effect (some movie are inherently better than others), and a user effect (some users tend to love everything they see, and therefore, while others are jaded critics and give lower ratings than average):
+$$\mathbf{Y_u,_i} = \mu + {b_i} + {b_u} + \epsilon_u,_i$$
+(The b in this notation stands for bias, aka effects)
+
+The movie effect can be found by taking the difference of the avg rating for all movies, and the individual rating for each movie. 
+Better than avg movies will have positive residuals, while worse than avg movies will have negative residuals.
+$$b_i = \frac{1}{n_i} \sum_{u = 1}^{n_i} (Y_u,_i-\hat{\mu})$$
+```{r echo=TRUE}
+b_i <- train %>% group_by(movieId) %>% 
+  summarise(b_i = mean(rating - mu))
+```
+
+In order to test the model this effect is then incorporated into the train and test data frame as such:
+```{r echo=TRUE}
+train <- train  %>% left_join(b_i, by = "movieId")
+test <- test  %>% left_join(b_i, by = "movieId")
+```
+Which gives us the following RMSE:
+```{r echo=TRUE}
+RMSE(test$rating, mu + test$b_i)
+```
+
+The user effect is incorporated in essentially the same way, except that the movie effect is also subtracted to further reduce variation:
+```{r echo=TRUE}
+b_u <- train %>% group_by(userId) %>% 
+  summarise(b_u = mean(rating - mu - b_i))
+train <- train  %>% left_join(b_u, by = "userId")
+test <- test  %>% left_join(b_u, by = "userId")
+```
+The user effect and movie effect combined give us an RMSE of:
+```{r echo=TRUE}
+RMSE(test$rating, mu + test$b_u + test$b_i)
+```
+
+### Regularization
+
+The user and movie effects model can further be improved through regularization. Many of the movies in the dataset are quite obscure, and have only received one or two ratings; this makes their sample average rating extremely variable, and unrepresentative of the true average rating. The current model currently does not currently account for this, and the movie effect from movies with few ratings is likely to be overepresented. The same applies for users, as some have only rated 20 movies, while others thousands.
+
+```{r echo=TRUE, warning=FALSE}
+train %>% group_by(userId) %>% summarise(n = n()) %>% 
+  ggplot(aes(n)) +
+  geom_histogram(bins = 50) +
+  scale_y_log10() +
+  ylab("Users (Count) (log10 scaled)") +
+  xlab("Number of reviews") +
+  ggtitle("Number of reviews per user")
+```
+
+
+Regularization helps us account for this variation by adding a penalty $\lambda$ to large estimates of effects that come from small sample sizes.
+$$b_i = \frac{1}{\lambda+n_i} \sum_{u = 1}^{n_i} (Y_u,_i-\hat{\mu})$$
+As $\lambda$ increases small sample sizes are further penalized. 
+
+In order to find the optimal value for $\lambda_i$, the following function is created, which finds the RMSE on the test set after training on the train set when given a specific $\lambda$ :
+
+```{r echo=TRUE}
+reg_RMSE_b_i <- function(l_i){
+  b_i_reg <- train %>% group_by(movieId) %>% 
+    summarise(b_i_reg = sum(rating - mu)/(n() + l_i))
+  test_r <- test %>% left_join(b_i_reg, by = "movieId")
+  data.frame(rmse =  RMSE(test_r$rating, mu + test_r$b_i_reg), l_i = l_i)
+}
+```
+
+$\lambda s$ 1 through 20 are then tested :
+```{r echo=TRUE}
+lambdas <- 1:20
+reg_rmses_b_i <- map_df(lambdas, function(x) reg_RMSE_b_i(x))
+#plot results
+reg_rmses_b_i %>% ggplot(aes(l_i, rmse)) + geom_point() +
+  ggtitle("RMSE for each value of lambda_i") + xlab("lambda_i") 
+knitr::kable(reg_rmses_b_i[which.min(reg_rmses_b_i$rmse),]) #Best result (l = 2)
+```
+
+$\lambda s$ 1 through 3, with intervals of 0.1 were then used to further narrow down $\lambda_i$ :
+```{r echo=TRUE}
+lambdas <- seq(1,3,.1)
+reg_rmses_b_i <- map_df(lambdas, function(x) reg_RMSE_b_i(x))
+reg_rmses_b_i %>% ggplot(aes(l_i, rmse)) + geom_point() +
+  ggtitle("RMSE for each value of lambda_i") + xlab("lambda_i") #plot results
+knitr::kable(reg_rmses_b_i[which.min(reg_rmses_b_i$rmse),]) #Best result (l_i = 2.3)
+l_i <- reg_rmses_b_i[which.min(reg_rmses_b_i$rmse),]$l_i
+```
+
+To find the optimal $\lambda_u$, a new function is defined, which takes $\lambda_i$ and $\lambda_u$ as inputs:
+```{r echo=TRUE}
+reg_RMSE <- function(l_i, l_u){
+  b_i_reg <- train %>% group_by(movieId) %>% 
+    summarise(b_i_reg = sum(rating - mu)/(n() + l_i))
+  test_r <- test %>% left_join(b_i_reg, by = "movieId")
+  train_r <- train %>% left_join(b_i_reg, by = "movieId")
+  b_u_reg <- train_r %>% group_by(userId) %>% 
+    summarise(b_u_reg = sum(rating - mu - b_i_reg)/(n() + l_u))
+  test_r <- test_r %>% left_join(b_u_reg, by = "userId")
+  data.frame(rmse =  RMSE(test_r$rating, mu + test_r$b_i_reg + test_r$b_u_reg), l_i = l_i , l_u = l_u)
+}
+```
+
+$\lambda s$ 1 through 20 are once again tested for $\lambda_u$, and 2.3 is used for $\lambda_i$:
+```{r echo=TRUE}
+lambdas <- 1:20
+reg_rmses <-  map_df(lambdas, function(x) reg_RMSE(l_i, x))
+reg_rmses %>% ggplot(aes(l_u, rmse)) + geom_point() +
+  ggtitle("RMSE for each value of lambda_u") + xlab("lambda_u") #plot results
+knitr::kable(reg_rmses[which.min(reg_rmses$rmse),]) #Best result (l_u = 5)
+```
+
+Narrowing down $\lambda_u$ in the same way as before gives us an optimal value of 4.7:  
+
+```{r echo=TRUE}
+lambdas <- seq(4,6, by = .1)
+reg_rmses <-  map_df(lambdas, function(x) reg_RMSE(l_i, x))
+reg_rmses %>% ggplot(aes(l_u, rmse)) + geom_point() +
+  ggtitle("RMSE for each value of lambda_u") + xlab("lambda_u")
+l_u <- reg_rmses[which.min(reg_rmses$rmse),]$l_u
+```
+
+And our regularized model now has an estimated RMSE of:
+```{r echo=TRUE}
+reg_RMSE(l_i, l_u)
+```
+
+### Matrix Factorization 
+
+
+
+## Results
+
+(presents the modeling results and discusses the model performance)
+
+## Conclusion
+
+(gives a brief summary of the report, its limitations and future work)
+
+## Citations:
+
+F. Maxwell Harper and Joseph A. Konstan. 2015. The MovieLens Datasets: History 
+  and Context. ACM Transactions on Interactive Intelligent Systems (TiiS) 5, 4, 
+  Article 19 (December 2015), 19 pages. DOI=http://dx.doi.org/10.1145/2827872
+  
+Created as a capstone project for Harvardx's proffessional certificate in Data 
+Science.

@@ -1,3 +1,5 @@
+# Note: This part of the code was not written by me, it was given as a jumping off point
+
 # To load the edx and verification datasets for the first time from scratch
 if(!exists("edx") & !exists("verification")){
   ################################
@@ -9,7 +11,6 @@ if(!exists("edx") & !exists("verification")){
   if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
   if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
   if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
-  if(!require(recosystem)) install.packages("recosystem")
   
   # MovieLens 10M dataset:
   # https://grouplens.org/datasets/movielens/10m/
@@ -49,14 +50,16 @@ if(!exists("edx") & !exists("verification")){
 }
 
 
+# Start of my code: (Alix Benoit)
 # ---------------------------GOAL RMSE < 0.86490 ----------------------------------
 
+if(!require(recosystem)) install.packages("recosystem")
 options(digits = 7)
 # Load libraries
 library(tidyverse)
 library(caret)
 
-# Splitting edx set into test and training set
+# Splitting edx set into test and training set (note: test set is different than validation set)
 i <- createDataPartition(edx$rating, times = 1, p = .1, list = F)
 train <- edx[-i,]
 test <- edx[i,]
@@ -134,7 +137,7 @@ reg_rmses_b_i[which.min(reg_rmses_b_i$rmse),] #Best result (l = 2)
 lambdas <- seq(1,3,.1)
 reg_rmses_b_i <- map_df(lambdas, function(x) reg_RMSE_b_i(x))
 plot(reg_rmses_b_i$l_i, reg_rmses_b_i$rmse) #plot results
-reg_rmses_b_i[which.min(reg_rmses_b_i$rmse),] #Best result (l_i = 1.8)
+reg_rmses_b_i[which.min(reg_rmses_b_i$rmse),] #Best result (l_i = 2.3)
 l_i <- reg_rmses_b_i[which.min(reg_rmses_b_i$rmse),]$l_i
 
 # Test out lambdas 1-20 for lambda_u
