@@ -164,15 +164,10 @@ b_u_reg <- train %>% group_by(userId) %>%
   summarise(b_u_reg = sum(rating - mu - b_i_reg)/(n() + l_u))
 train <- train %>% left_join(b_u_reg, by = "userId") %>% select(-b_i, -b_u) %>% 
   mutate(rating_minus_effects = rating - b_i_reg - b_u_reg - mu)
-test <- test %>% left_join(b_u_reg, by = "userId") %>% select(-b_i, -b_u) %>% 
-  mutate(rating_minus_effects = rating - b_i_reg - b_u_reg - mu)
-# Adding time effects
-# time since user's first rating (users could get more cranky over time) (t_1st_rat)
-# first_rat <- train %>% group_by(userId) %>% summarise(first_rat = min(timestamp))
-# train <- train %>% left_join(first_rat, by = "userId") %>% mutate(t_1st_rat = timestamp - first_rat)
 
 # Matrix factorization using Stochastic gradient Descent (SGD) through "recosystem" package
 library(recosystem)
+
 
 # setting up training and testing data
 train_data <- data_memory(user_index = train$userId, item_index = train$movieId,
@@ -193,6 +188,7 @@ opts <- r$tune(train_data = train_data,
 # lrate = c(.01, .05, .1, .15, .2) = .1
 r$train(train_data = train_data, opts = c(niter = 40, dim = 45, costp_l1 = 0, costp_l2 = 0.01,
                                           costq_l1 = 0, costq_l2 = .2, lrate = .1))
+r$output()
 y_hat_sgd <- r$predict(test_data, out_pred = out_memory()) +mu + test$b_i_reg + test$b_u_reg
 
 RMSE(test$rating, y_hat_sgd) # 0.7904563  

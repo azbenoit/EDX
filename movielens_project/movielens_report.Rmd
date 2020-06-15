@@ -64,27 +64,27 @@ library(caret)
 
 This project makes use of the movielens 10 million dataset from grouplens at the University of Minnesota. This dataset is comprised of 10000054 total ratings of 10681 movies by 71567 users acquired from the online movie recommendation service "Movielens". Users were selected at random, and all of them had rated at least 20 movies.
 
-The following libraries were used:  
-* tidyverse
-* caret
-* knitr
-* recosystem
+The following libraries were used:   
+ - tidyverse  
+ - caret  
+ - knitr  
+ - recosystem  
   
 The following demographics are included for each rating in the dataset: 
-* The ID of the user
-* The ID of the movie
-* The rating (number of stars given: 1 = doesn't like the movie; 5 = loves it)
-* When the review was written (given as a numerical timestamp)
-* The title of the movie
-* The possible genres the movie could fall into
+ - The ID of the user  
+ - The ID of the movie  
+ - The rating (number of stars given: 1 = doesn't like the movie; 5 = loves it)  
+ - When the review was written (given as a numerical timestamp)  
+ - The title of the movie  
+ - The possible genres the movie could fall into  
   
 While there exist larger datasets (such as the 100 million set) the 10 million set was chosen in order to make calculations feasable on an old laptop computer.
 
 The goal of the project was to create a machine learning algorithm that can accurately predict the rating a user will give a certain movie when provided with the demographics above (minus rating of course). 
 
-The Root Mean Squared Error (RMSE) was chosen as the measure of accuracy for the algorithm, and the dataset was split into two dataframes:
- * The edx dataframe used for training and cross validation of the algorithm, which makes up 90% of the total dataset
- * The validation dataframe used only for the final testing of the final model.
+The Root Mean Squared Error (RMSE) was chosen as the measure of accuracy for the algorithm, and the dataset was split into two dataframes:  
+ - The edx dataframe used for training and cross validation of the algorithm, which makes up 90% of the total dataset  
+ - The validation dataframe used only for the final testing of the final model.
 The target RMSE was 0.86490.  
 
 $$RMSE = \sqrt{\frac{1}{n} \sum_{i=1}^{n}{(\hat{Y_i} - Y_i)^2}}$$
@@ -262,7 +262,59 @@ And our regularized model now has an estimated RMSE of:
 reg_RMSE(l_i, l_u)
 ```
 
-### Matrix Factorization 
+### Matrix Factorization:  
+
+```{r include=FALSE}
+if(!require(recosystem)) install.packages("recosystem")
+library(recosystem)
+```
+
+#### What is it?  
+
+In order to further increase the accuracy of our model, matrix factorization can be used.  
+Matrix factorization essentially works by __finding similarities__ in movies and users not accounted for by the user and movie effects, these similarities are clumped together into groups called _latent factors_.  
+
+-There are __user__ factors, which are stored in a __"P" matrix__. (With each row representing a factor, and each column representing a user)  
+
+-And there are __item (movie) factors__, which are stored in a __"Q" matrix__. (With each row representing a factor, and each column representing a movie)  
+
+Each factor in the __Q (movie) matrix__ attempts to find a __specific attribute/characteristic__ that would correspond with many movies, such as "blockbuster" which on one end of the spectrum would include blockbuster movies such as "Avengers" and would include indie movies such as the "Blair Witch project" on the other end. Movies in between might receive a 0, while blockbusters would receive a positive number, and indie movies a negative. There will be many different types of factors, some may rely on genre such as a "fantasy" factor, or a particular actor in a set of movie, maybe a "Dicaprio" factor. Some factors may be completely uninterpretable, and rely on some obscure quirks of random movies.   
+
+Factors in the __P (user) matrix__ will record __how much interest each user has in any given movie factor__. For example a user who hates blockbusters, loves fantasy, and doesn't care about Dicaprio might get a positive score on the blockbuster factor, a negative for the fantasy factor, and a zero for the Dicaprio factor.  
+
+Taking the dot product $pT_u*q_i$ of the two matrices results in the __R (Residual) Matrix__. This matrix captures each user's intersest in a particular movie's characteristics (latent factors). This is the estimate of the user rating for each movie $Y_u,_i$.  
+
+The goal of Matrix Factorization is to estimate ratings as accurately as possible, i.e. minimize the cost function** for P and Q: (Chin, Zhuang, et al. 2015a, 2015b)  
+$$\min_{P,Q}\sum_{(u,i) \in S}\left[f(p_u,q_i;r_u,_i)+\mu_P ||p_u||_1+\mu_Q ||q_i||_1+\frac{\lambda_P}{2}||p_u||^2_2+\frac{\lambda _Q}{2}||q_i||^2_2\right]$$
+
+Where S is the set of all observed ratings, $f$ is the loss function (RMSE in our case) $\mu_P$, $\mu_Q$, $\lambda_P$ and $\lambda_Q$ are the regularization (penalty) parameters to avoid overfitting.  
+
+**note that there are other possible representations of cost function, especially due to different ways of using regularization, here is another possible approach with only one regularization parameter:
+$$f(cost) = \sum_{r_u,_i \in S}(pT_u*q_i - Y_u,i)^2 + \lambda * (\sum_{u}{||p_u||^2} + \sum_{i}{||q_i||^2}) $$  
+
+#### Implementation:
+
+To implement matrix factorization into our algorithm, the _recosystem_ r package can be used. This package makes use of the LIMBF library developed by Yu-Chin Juan, Wei-Sheng Chin, Yong Zhuang, Bo-Wen Yuan, Meng-Yuan Yang, and Chih-Jen Lin (http://www.csie.ntu.edu.tw/~cjlin/libmf/).  
+
+This package uses parallel Stochastic Gradient Descent (SGD) in order to minimize the cost function.
+
+The model including matrix factorization now becomes:  
+
+$$\mathbf{Y_u,_i} = \mu + {b_i} + {b_u} + \sum_{m = 1}^{k}{(p_u,_mq_i,_m)}+\epsilon_u,_i$$
+Where k is the number of latent factors. Each latent factor, in a way, can be thought of as an additional baseline effect.
+
+To start the matrix factorization, we first need to add our previous baseline effects into the train and test sets, aswell as the rating minus effects into the train set:
+```{r}
+b_i_reg <- train %>% group_by(movieId) %>% 
+  summarise(b_i_reg = sum(rating - mu)/(n() + l_i))
+test <- test %>% left_join(b_i_reg, by = "movieId")
+train <- train %>% left_join(b_i_reg, by = "movieId")
+b_u_reg <- train %>% group_by(userId) %>% 
+  summarise(b_u_reg = sum(rating - mu - b_i_reg)/(n() + l_u))
+train <- train %>% left_join(b_u_reg, by = "userId") %>% select(-b_i, -b_u) %>% 
+  mutate(rating_minus_effects = rating - b_i_reg - b_u_reg - mu)
+```
+
 
 
 
@@ -274,11 +326,29 @@ reg_RMSE(l_i, l_u)
 
 (gives a brief summary of the report, its limitations and future work)
 
+
+
+
 ## Citations:
 
-F. Maxwell Harper and Joseph A. Konstan. 2015. The MovieLens Datasets: History 
-  and Context. ACM Transactions on Interactive Intelligent Systems (TiiS) 5, 4, 
-  Article 19 (December 2015), 19 pages. DOI=http://dx.doi.org/10.1145/2827872
+Chin, Wei-Sheng, Bo-Wen Yuan, Meng-Yuan Yang, Yong Zhuang, Yu-Chin Juan, and  
+  Chih-Jen Lin. 2015. “LIBMF: A Library for Parallel Matrix Factorization in  
+  Shared-Memory Systems.”  
+  https://www.csie.ntu.edu.tw/~cjlin/papers/libmf/libmf_open_source.pdf.  
+Chin, Wei-Sheng, Yong Zhuang, Yu-Chin Juan, and Chih-Jen Lin. 2015a. “A Fast   
+  Parallel Stochastic Gradient Method for Matrix Factorization in Shared Memory  
+  Systems.” ACM TIST.  
+  http://www.csie.ntu.edu.tw/~cjlin/papers/libmf/libmf_journal.pdf.  
+———. 2015b. “A Learning-Rate Schedule for Stochastic Gradient Methods to  
+  Matrix Factorization.” PAKDD.  
+  http://www.csie.ntu.edu.tw/~cjlin/papers/libmf/mf_adaptive_pakdd.pdf.  
+F. Maxwell Harper and Joseph A. Konstan. 2015. The MovieLens Datasets: History  
+  and Context. ACM Transactions on Interactive Intelligent Systems (TiiS) 5, 4,   
+  Article 19 (December 2015), 19 pages. DOI=http://dx.doi.org/10.1145/2827872  
+
   
+
 Created as a capstone project for Harvardx's proffessional certificate in Data 
 Science.
+
+
