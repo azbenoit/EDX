@@ -162,8 +162,9 @@ test <- test %>% left_join(b_i_reg, by = "movieId")
 train <- train %>% left_join(b_i_reg, by = "movieId")
 b_u_reg <- train %>% group_by(userId) %>% 
   summarise(b_u_reg = sum(rating - mu - b_i_reg)/(n() + l_u))
-train <- train %>% left_join(b_u_reg, by = "userId") %>% select(-b_i, -b_u) %>% 
+train <- train %>% left_join(b_u_reg, by = "userId") %>% 
   mutate(rating_minus_effects = rating - b_i_reg - b_u_reg - mu)
+test <- test %>% left_join(b_u_reg, by = "userId")
 
 # Matrix factorization using Stochastic gradient Descent (SGD) through "recosystem" package
 library(recosystem)
@@ -174,11 +175,13 @@ train_data <- data_memory(user_index = train$userId, item_index = train$movieId,
                           rating = train$rating_minus_effects, index1 = T)
 test_data <- data_memory(user_index = test$userId, item_index = test$movieId, index1 = T)
 r <- Reco()
+class(r)[1]
+
 # Tuning parameters 1 by 1 to save time
 opts <- r$tune(train_data = train_data, 
                opts = list(dim = 20, costp_l1 = 0,
-                           costp_l2 = .01, costq_l1 = 0, costq_l2 = .2,
-                           lrate = .1, verbose = T, nfold = 3))
+                           costp_l2 = c(.01,.1), costq_l1 = 0, costq_l2 = .2,
+                           lrate = .1, verbose = T, nfold = 5))
 # Best parameters: 
 # dim(seq(5,35,5), seq(32.5,45,2.5)) = 45
 # costp_l1 (c(0,.01,.05,.1,.15,.2)) = 0
@@ -188,7 +191,6 @@ opts <- r$tune(train_data = train_data,
 # lrate = c(.01, .05, .1, .15, .2) = .1
 r$train(train_data = train_data, opts = c(niter = 40, dim = 45, costp_l1 = 0, costp_l2 = 0.01,
                                           costq_l1 = 0, costq_l2 = .2, lrate = .1))
-r$output()
 y_hat_sgd <- r$predict(test_data, out_pred = out_memory()) +mu + test$b_i_reg + test$b_u_reg
 
 RMSE(test$rating, y_hat_sgd) # 0.7904563  
@@ -197,14 +199,12 @@ RMSE(test$rating, y_hat_sgd) # 0.7904563
 # ------------------- Implementing final model on validation set -----------------
 
 
-# Model: Y_u,i = mu + b_i + b_u + p_u,m * q_i_m + epsilon_u,i
+# Model: Y_u,i = mu + b_i + b_u + sum(p_u,m * q_i_m) + epsilon_u,i
 # Note: all effects are regularized
-# Note: p_u,m * q_i_m represents the matrix factorization
+# Note: sum(p_u,m * q_i_m) represents the matrix factorization
 
 # Training model on full edx dataset:
 mu <- mean(edx$rating)
-l_i <- 2.3
-l_u <- 4.8
 
 # Movie and user effects
 reg_b_i <- edx %>% group_by(movieId) %>% 
@@ -238,6 +238,8 @@ validation_data <- data_memory(user_index = validation$userId,
 final_predictions <-  mu + validation$reg_b_i + validation$reg_b_u + 
   r_final$predict(validation_data, out_pred = out_memory())
 
-final_RMSE <- RMSE(validation$rating, final_predictions)
+rmse_final <- RMSE(validation$rating, final_predictions)
 
-final_RMSE #0.7878149!
+rmse_final #0.7878149!
+
+(1 - rmse_final/rmse_target) * 100

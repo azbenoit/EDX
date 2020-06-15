@@ -70,7 +70,7 @@ The following libraries were used:
  - knitr  
  - recosystem  
   
-The following demographics are included for each rating in the dataset: 
+The following demographics are included for each rating in the dataset:  
  - The ID of the user  
  - The ID of the movie  
  - The rating (number of stars given: 1 = doesn't like the movie; 5 = loves it)  
@@ -80,7 +80,7 @@ The following demographics are included for each rating in the dataset:
   
 While there exist larger datasets (such as the 100 million set) the 10 million set was chosen in order to make calculations feasable on an old laptop computer.
 
-The goal of the project was to create a machine learning algorithm that can accurately predict the rating a user will give a certain movie when provided with the demographics above (minus rating of course). 
+The goal of the project is to create a machine learning algorithm that can accurately predict the rating a user will give a certain movie when provided with the demographics above (minus rating of course). 
 
 The Root Mean Squared Error (RMSE) was chosen as the measure of accuracy for the algorithm, and the dataset was split into two dataframes:  
  - The edx dataframe used for training and cross validation of the algorithm, which makes up 90% of the total dataset  
@@ -88,8 +88,11 @@ The Root Mean Squared Error (RMSE) was chosen as the measure of accuracy for the
 The target RMSE was 0.86490.  
 
 $$RMSE = \sqrt{\frac{1}{n} \sum_{i=1}^{n}{(\hat{Y_i} - Y_i)^2}}$$
+```{r echo=TRUE}
+rmse_target <- .89490
+```
 
-The final model essentially consited of the mean rating plus regularized movie and user effects, aswell as a matrix factorization using a Stochastic Gradient Descent.
+The final model essentially consited of the mean rating plus regularized movie and user effects, aswell as matrix factorization using a parallel Stochastic Gradient Descent.
 
 Here is a sample of the edx data frame showing the first 6 entries:
 ```{r edx_head, echo=TRUE, fig.width=7.5, paged.print=TRUE}
@@ -99,12 +102,11 @@ knitr::kable(head(edx))
 
 
 ## Method and Analysis
-(explains the process and techniques used, including data cleaning, data exploration and visualization, insights gained, and your modeling approach)
 
 ### Data wrangling and cleaning
-Minimal amounts of data cleaning and wrangling were required in order to get start data exploration, as a starting script was already given, which created the Edx and validation sets.
+Minimal amounts of data cleaning and wrangling are required in order to start data exploration, as a starting script is already given, which creates the Edx and validation sets.
 
-The first step was to split the edx set further, into a "train" set and a "test" set:
+The first step is to split the edx set further, into a "train" set and a "test" set:
 ```{r edx_split_1, echo=TRUE}
 i <- createDataPartition(edx$rating, times = 1, p = .1, list = F)
 train <- edx[-i,]
@@ -116,26 +118,27 @@ test <- test %>% semi_join(train, by = "movieId") %>%
   semi_join(train, by = "userId")
 ```
 
-The train set was used to train all algorithms and perform cross validation; the test* set was used to get an estimate of how well a particular algorithm performed, and for cross validation purposes as well. 
+The train set is used to train all algorithms and perform cross validation; the test* set is used to get an estimate of how well a particular algorithm performs, and for cross validation purposes as well. 
 
 
 *Note that this is different than the validation set, which is used only on the final model predictions, and cannot be used to make any decisions. Since the test set is derived from the edx set, it can be used to make decisions.
 
 ### Baseline model
 
-The following function was written in order to calculate the RMSE from a set of predictions, and a set of actual ratings:
+The following function is written in order to calculate the RMSE from a set of predictions, and a set of actual ratings:
 ```{r RMSE_function, echo=TRUE}
 RMSE <- function(actual_rating, predicted_rating){
   sqrt(mean((actual_rating - predicted_rating)^2))
 }
 ```
 
-As a baseline for other models, a simple "guessing" model was adopted, using the mean rating from the train set.
+As a baseline for other models, a simple "guessing" model is adopted, using the mean rating from the train set.
 $$\mathbf{Y_u,_i} = \mu + \epsilon_u,_i$$
-This model achieved the following RMSE on the test set:
+This model achieves the following RMSE on the test set:
 ```{r baseline, echo=TRUE}
 mu <- mean(train$rating)
-RMSE(test$rating, mu)
+rmse_guess <- RMSE(test$rating, mu)
+rmse_guess
 ```
 
 ### Movie and user effects
@@ -176,7 +179,7 @@ RMSE(test$rating, mu + test$b_u + test$b_i)
 
 ### Regularization
 
-The user and movie effects model can further be improved through regularization. Many of the movies in the dataset are quite obscure, and have only received one or two ratings; this makes their sample average rating extremely variable, and unrepresentative of the true average rating. The current model currently does not currently account for this, and the movie effect from movies with few ratings is likely to be overepresented. The same applies for users, as some have only rated 20 movies, while others thousands.
+The user and movie effects model can further be improved through regularization. Many of the movies in the dataset are quite obscure, and have only received one or two ratings; this makes their sample average rating extremely variable, and unrepresentative of the true average rating. The current model does not account for this, and the movie effect from movies with few ratings is likely to be overepresented. The same applies for users, as some have only rated 20 movies, while others thousands.
 
 ```{r echo=TRUE, warning=FALSE}
 train %>% group_by(userId) %>% summarise(n = n()) %>% 
@@ -204,23 +207,23 @@ reg_RMSE_b_i <- function(l_i){
 }
 ```
 
-$\lambda s$ 1 through 20 are then tested :
+$\lambda s$ 1 through 20 are tested :
 ```{r echo=TRUE}
 lambdas <- 1:20
 reg_rmses_b_i <- map_df(lambdas, function(x) reg_RMSE_b_i(x))
 #plot results
 reg_rmses_b_i %>% ggplot(aes(l_i, rmse)) + geom_point() +
   ggtitle("RMSE for each value of lambda_i") + xlab("lambda_i") 
-knitr::kable(reg_rmses_b_i[which.min(reg_rmses_b_i$rmse),]) #Best result (l = 2)
+knitr::kable(reg_rmses_b_i[which.min(reg_rmses_b_i$rmse),]) 
 ```
 
-$\lambda s$ 1 through 3, with intervals of 0.1 were then used to further narrow down $\lambda_i$ :
+$\lambda s$ 1 through 3, with intervals of 0.1 are then tested to further narrow down $\lambda_i$ :
 ```{r echo=TRUE}
 lambdas <- seq(1,3,.1)
 reg_rmses_b_i <- map_df(lambdas, function(x) reg_RMSE_b_i(x))
 reg_rmses_b_i %>% ggplot(aes(l_i, rmse)) + geom_point() +
   ggtitle("RMSE for each value of lambda_i") + xlab("lambda_i") #plot results
-knitr::kable(reg_rmses_b_i[which.min(reg_rmses_b_i$rmse),]) #Best result (l_i = 2.3)
+knitr::kable(reg_rmses_b_i[which.min(reg_rmses_b_i$rmse),]) 
 l_i <- reg_rmses_b_i[which.min(reg_rmses_b_i$rmse),]$l_i
 ```
 
@@ -234,7 +237,8 @@ reg_RMSE <- function(l_i, l_u){
   b_u_reg <- train_r %>% group_by(userId) %>% 
     summarise(b_u_reg = sum(rating - mu - b_i_reg)/(n() + l_u))
   test_r <- test_r %>% left_join(b_u_reg, by = "userId")
-  data.frame(rmse =  RMSE(test_r$rating, mu + test_r$b_i_reg + test_r$b_u_reg), l_i = l_i , l_u = l_u)
+  data.frame(rmse =  RMSE(test_r$rating, mu + test_r$b_i_reg + test_r$b_u_reg),  
+             l_i = l_i , l_u = l_u)
 }
 ```
 
@@ -244,7 +248,7 @@ lambdas <- 1:20
 reg_rmses <-  map_df(lambdas, function(x) reg_RMSE(l_i, x))
 reg_rmses %>% ggplot(aes(l_u, rmse)) + geom_point() +
   ggtitle("RMSE for each value of lambda_u") + xlab("lambda_u") #plot results
-knitr::kable(reg_rmses[which.min(reg_rmses$rmse),]) #Best result (l_u = 5)
+knitr::kable(reg_rmses[which.min(reg_rmses$rmse),]) 
 ```
 
 Narrowing down $\lambda_u$ in the same way as before gives us an optimal value of 4.7:  
@@ -289,66 +293,162 @@ $$\min_{P,Q}\sum_{(u,i) \in S}\left[f(p_u,q_i;r_u,_i)+\mu_P ||p_u||_1+\mu_Q ||q_
 
 Where S is the set of all observed ratings, $f$ is the loss function (RMSE in our case) $\mu_P$, $\mu_Q$, $\lambda_P$ and $\lambda_Q$ are the regularization (penalty) parameters to avoid overfitting.  
 
-**note that there are other possible representations of cost function, especially due to different ways of using regularization, here is another possible approach with only one regularization parameter:
+**note that there are other possible representations of cost function, especially due to different ways of using regularization, here is another possible approach with only one regularization parameter:  
 $$f(cost) = \sum_{r_u,_i \in S}(pT_u*q_i - Y_u,i)^2 + \lambda * (\sum_{u}{||p_u||^2} + \sum_{i}{||q_i||^2}) $$  
 
 #### Implementation:
 
-To implement matrix factorization into our algorithm, the _recosystem_ r package can be used. This package makes use of the LIMBF library developed by Yu-Chin Juan, Wei-Sheng Chin, Yong Zhuang, Bo-Wen Yuan, Meng-Yuan Yang, and Chih-Jen Lin (http://www.csie.ntu.edu.tw/~cjlin/libmf/).  
+To implement matrix factorization into our algorithm, the _recosystem_ r package can be used. This package makes use of the LIMBF library developed by Yu-Chin Juan, Wei-Sheng Chin, Yong Zhuang, Bo-Wen Yuan, Meng-Yuan Yang, and Chih-Jen Lin (http://www.csie.ntu.edu.tw/~cjlin/libmf/).    
 
-This package uses parallel Stochastic Gradient Descent (SGD) in order to minimize the cost function.
+This package uses parallel Stochastic Gradient Descent (SGD) in order to minimize the cost function.  
 
 The model including matrix factorization now becomes:  
 
 $$\mathbf{Y_u,_i} = \mu + {b_i} + {b_u} + \sum_{m = 1}^{k}{(p_u,_mq_i,_m)}+\epsilon_u,_i$$
-Where k is the number of latent factors. Each latent factor, in a way, can be thought of as an additional baseline effect.
+Where k is the number of latent factors. Each latent factor, in a way, can be thought of as an additional baseline effect.  
 
-To start the matrix factorization, we first need to add our previous baseline effects into the train and test sets, aswell as the rating minus effects into the train set:
-```{r}
+To start the matrix factorization, we first need to add our previous baseline effects into the train and test sets, aswell as the rating minus effects into the train set:  
+```{r echo=TRUE}
 b_i_reg <- train %>% group_by(movieId) %>% 
   summarise(b_i_reg = sum(rating - mu)/(n() + l_i))
 test <- test %>% left_join(b_i_reg, by = "movieId")
 train <- train %>% left_join(b_i_reg, by = "movieId")
 b_u_reg <- train %>% group_by(userId) %>% 
   summarise(b_u_reg = sum(rating - mu - b_i_reg)/(n() + l_u))
-train <- train %>% left_join(b_u_reg, by = "userId") %>% select(-b_i, -b_u) %>% 
+train <- train %>% left_join(b_u_reg, by = "userId") %>%
   mutate(rating_minus_effects = rating - b_i_reg - b_u_reg - mu)
+test <- test %>% left_join(b_u_reg, by = "userId") 
 ```
 
+We then need to define the training and testing data and define r as a recosystem (RecoSys) object:  
+```{r echo=TRUE}
+train_data <- data_memory(user_index = train$userId, item_index = train$movieId,  
+                          rating = train$rating_minus_effects, index1 = T)
+test_data <- data_memory(user_index = test$userId, item_index = test$movieId, index1 = T)
+r <- Reco()
+class(r)[1]
+```
 
+The model parameters are then tuned using 5-fold cross validation in the "tune" function; they are tuned independently (one by one) to save time since our computing power is somewhat limited.  
+```{r echo=TRUE, eval=FALSE}
+opts <- r$tune(train_data = train_data, 
+               opts = list(dim = 45, costp_l1 = 0,
+                           costp_l2 = .01, costq_l1 = 0, costq_l2 = .2,
+                           lrate = .1, verbose = T, nfold = 5))
+# Best parameters: 
+# dim c(seq(5,35,5), seq(32.5,45,2.5)) = 45 
+# costp_l1 (c(0,.01,.05,.1,.15,.2)) = 0
+# costp_l2 (c(0,.01,.05,.1,.15,.2)) = .01
+# costq_l1 (c(0,.01,.05,.1,.15)) = 0
+# costq_l2 (c(0,.01,.05,.1,.15,.2, .25,.3)) = .2
+# lrate = c(.01, .05, .1, .15, .2) = .1
+```
 
+The algorithm is then trained using the best parameters acquired from tuning:  
+
+```{r echo=TRUE}
+r$train(train_data = train_data,  
+        opts = c(niter = 40, dim = 45, costp_l1 = 0, costp_l2 = 0.01,  
+                 costq_l1 = 0, costq_l2 = .2, lrate = .1, verbose = FALSE))
+```
+
+With the model trained, we can make our predictions on the test set:
+```{r echo=TRUE}
+y_hat_sgd <- (r$predict(test_data, out_pred = out_memory()) 
+              +mu + test$b_i_reg + test$b_u_reg)
+```
+
+And we can therfore get our final estimated RMSE:
+```{r echo=TRUE}
+RMSE(test$rating, y_hat_sgd)
+```
 
 ## Results
 
-(presents the modeling results and discusses the model performance)
+With our final model chosen:  
+$$\mathbf{Y_u,_i} = \mu + {b_i} + {b_u} + \sum_{m = 1}^{k}{(p_u,_mq_i,_m)}+\epsilon_u,_i$$
+We are ready to test it against the validation set.  
+
+In order to take advantage of the total size of the edx dataset, we will retrain the model on the full edx set:
+
+```{r echo=TRUE}
+mu <- mean(edx$rating)
+
+# Movie and user effects
+reg_b_i <- edx %>% group_by(movieId) %>% 
+  summarise(reg_b_i = sum(rating - mu)/(n() + l_i))
+edx <- edx %>% left_join(reg_b_i, by = "movieId")
+reg_b_u <- edx %>% group_by(userId) %>% 
+  summarise(reg_b_u = sum(rating - mu - reg_b_i)/(n() + l_u))
+edx <- edx %>% left_join(reg_b_u, by = "userId") %>% 
+  mutate(rating_minus_effects = rating - reg_b_i - reg_b_u - mu)
+
+# Matrix factorization
+edx_data <- data_memory(user_index = edx$userId, item_index = edx$movieId,
+                        rating = edx$rating_minus_effects, index1 = T)
+
+r_final <- Reco()
+r_final$train(train_data = edx_data,  
+              opts = c(niter = 40, dim = 45, costp_l1 = 0, costp_l2 = 0.01,  
+                       costq_l1 = 0, costq_l2 = .2, lrate = .1, verbose = F))
+```
+
+Now that the model has been retrained on the full edx set, it's time for the final test on the validation set (which hasn't been used in any part of our training/decisionmaking, this is the first time it is used).  
+
+First we join the b_i_reg and b_u_reg effects as columns on the validation set (note: this does not affect the dataset in any way, it simply adds a column for the corresponding b_i and b_u regularized effects) :
+```{r echo=TRUE}
+validation <- validation %>% left_join(reg_b_i, by = "movieId") %>% 
+  left_join(reg_b_u, by = "userId")
+```
+
+Then we can define the validation data* and make our final predictions:
+```{r echo=TRUE}
+validation_data <- data_memory(user_index = validation$userId, 
+                               item_index = validation$movieId,
+                               rating = NULL, index1 = T)
+
+final_predictions <-  mu + validation$reg_b_i + validation$reg_b_u + 
+  r_final$predict(validation_data, out_pred = out_memory())
+```
+
+*rating is left null, therefore it is not used, only movie_Id and user_Id are used
+
+And the final RMSE is:
+```{r echo=TRUE}
+rmse_final <- RMSE(validation$rating, final_predictions)
+rmse_final
+```
+```{r include=FALSE}
+options(digits = 4)
+```
+
+This result RMSE is a lot better than first expected, as it is `r (1 - rmse_final/rmse_target) * 100`% smaller than the target RMSE, and `r (1-rmse_final/rmse_guess) * 100`% smaller than the RMSE for the baseline guessing RMSE!
 
 ## Conclusion
 
-(gives a brief summary of the report, its limitations and future work)
+While we were able to achieve a good RMSE, there are still many possible additions to the final model. For instance, the model does not currently make any use of the timestamp or given genres. More in depth descriptions of certain methods used (such as SGD) could also be beneficial. 
 
-
-
+Future improvements to the model could include additional baseline factors, aswell as more types of models, such as a potential nearest neighboors model.
 
 ## Citations:
 
-Chin, Wei-Sheng, Bo-Wen Yuan, Meng-Yuan Yang, Yong Zhuang, Yu-Chin Juan, and  
+-Chin, Wei-Sheng, Bo-Wen Yuan, Meng-Yuan Yang, Yong Zhuang, Yu-Chin Juan, and  
   Chih-Jen Lin. 2015. “LIBMF: A Library for Parallel Matrix Factorization in  
   Shared-Memory Systems.”  
   https://www.csie.ntu.edu.tw/~cjlin/papers/libmf/libmf_open_source.pdf.  
-Chin, Wei-Sheng, Yong Zhuang, Yu-Chin Juan, and Chih-Jen Lin. 2015a. “A Fast   
+-Chin, Wei-Sheng, Yong Zhuang, Yu-Chin Juan, and Chih-Jen Lin. 2015a. “A Fast   
   Parallel Stochastic Gradient Method for Matrix Factorization in Shared Memory  
   Systems.” ACM TIST.  
   http://www.csie.ntu.edu.tw/~cjlin/papers/libmf/libmf_journal.pdf.  
-———. 2015b. “A Learning-Rate Schedule for Stochastic Gradient Methods to  
+-———. 2015b. “A Learning-Rate Schedule for Stochastic Gradient Methods to  
   Matrix Factorization.” PAKDD.  
   http://www.csie.ntu.edu.tw/~cjlin/papers/libmf/mf_adaptive_pakdd.pdf.  
-F. Maxwell Harper and Joseph A. Konstan. 2015. The MovieLens Datasets: History  
+-F. Maxwell Harper and Joseph A. Konstan. 2015. The MovieLens Datasets: History  
   and Context. ACM Transactions on Interactive Intelligent Systems (TiiS) 5, 4,   
   Article 19 (December 2015), 19 pages. DOI=http://dx.doi.org/10.1145/2827872  
-
-  
-
-Created as a capstone project for Harvardx's proffessional certificate in Data 
-Science.
+    
+    
+    
+_Created as a capstone project for Harvardx's proffessional certificate in Data Science on Edx._
 
 
